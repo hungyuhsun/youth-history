@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>青年高中校史影片</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&text=%E5%8B%B2&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --orange: #FF7F00;
+      --bar-bg: rgba(20, 20, 20, 0.78);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #111; color: #fff; overflow: hidden; }
+    body { font-family: 'Noto Sans TC', 'Noto Sans JP', 'Microsoft JhengHei', 'PingFang TC', sans-serif; }
+
+    #player { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+    #screen {
+      width: min(100vw, calc(100vh * 16 / 9));
+      aspect-ratio: 16 / 9;
+      background: #FBF6EE;
+      position: relative;
+    }
+    #screen svg { width: 100%; height: 100%; display: block; }
+
+    .zh { font-family: 'Noto Sans TC', 'Noto Sans JP', 'Microsoft JhengHei', 'PingFang TC', sans-serif; }
+    .num { font-family: 'Barlow Condensed', 'Oswald', 'Arial Narrow', sans-serif; }
+
+    /* 中央大播放鈕 */
+    #bigplay {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: rgba(0, 0, 0, 0.18); cursor: pointer; border: 0; color: inherit;
+      transition: opacity .3s;
+    }
+    #bigplay span {
+      display: flex; align-items: center; gap: 14px;
+      padding: 18px 34px 18px 28px; border-radius: 999px;
+      background: var(--orange); color: #fff; font-size: clamp(16px, 2.2vw, 28px); font-weight: 700;
+      box-shadow: 0 10px 30px rgba(255, 127, 0, .35);
+    }
+    #bigplay svg { width: 1.2em; height: 1.2em; }
+    #bigplay.hidden { opacity: 0; pointer-events: none; }
+
+    /* 控制列 */
+    #controls {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      padding: 10px 16px 14px; background: linear-gradient(transparent, rgba(0,0,0,.75) 40%);
+      display: flex; flex-direction: column; gap: 8px;
+      transition: opacity .35s;
+    }
+    body.idle #controls { opacity: 0; pointer-events: none; }
+    body.idle { cursor: none; }
+
+    .seek-wrap { position: relative; height: 18px; display: flex; align-items: center; }
+    #seek { width: 100%; accent-color: var(--orange); cursor: pointer; }
+    .marks { position: absolute; inset: 0; pointer-events: none; }
+    .marks i { position: absolute; top: 3px; width: 2px; height: 12px; background: rgba(255,255,255,.55); }
+
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .row button {
+      background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.18);
+      border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer;
+    }
+    .row button:hover { background: rgba(255,127,0,.35); }
+    .row button.on { background: var(--orange); border-color: var(--orange); }
+    #play { min-width: 64px; }
+    #time { font-variant-numeric: tabular-nums; font-size: 14px; opacity: .85; min-width: 96px; }
+    .chapters { display: flex; gap: 6px; flex-wrap: wrap; }
+    .spacer { flex: 1; }
+    .hint { font-size: 12px; opacity: .55; }
+    @media (max-width: 720px) { .hint { display: none; } }
+    body.clean #controls, body.clean #bigplay { display: none; }
+  </style>
+</head>
+<body>
+  <div id="player">
+    <div id="screen">
+      <svg id="svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="青年高中校史影片"></svg>
+      <button id="bigplay" aria-label="播放">
+        <span><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><b id="bigplay-label">載入中…</b></span>
+      </button>
+    </div>
+  </div>
+
+  <div id="controls">
+    <div class="seek-wrap">
+      <input id="seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="播放進度">
+      <div class="marks" id="marks"></div>
+    </div>
+    <div class="row">
+      <button id="play">▶ 播放</button>
+      <span id="time">0:00 / 0:00</span>
+      <div class="chapters" id="chapters"></div>
+      <span class="spacer"></span>
+      <span class="hint">空白鍵 播放/暫停 · ← → 上/下一則 · F 全螢幕</span>
+      <button id="voiceBtn">🗣 口白</button>
+      <button id="musicBtn">🎵 音樂</button>
+      <button id="fs">⛶ 全螢幕</button>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="icons.js"></script>
+  <script src="narration.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
