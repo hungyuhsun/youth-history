@@ -682,30 +682,37 @@
 
   // ---------- 聲音：口白 + 背景音樂（皆跟隨時間軸 t 同步） ----------
   const audioOn = { voice: true, music: true };
-  // 盡量先把音檔讀進記憶體（blob），讓任何伺服器下都能任意跳轉；
-  // 直接以 file:// 開啟時 fetch 不可用，就改用原路徑
-  const loadAudio = src => {
-    const a = new Audio();
-    a.preload = 'auto';
-    fetch(src).then(r => { if (!r.ok) throw 0; return r.blob(); })
-      .then(b => { a.src = URL.createObjectURL(b); })
-      .catch(() => { a.src = src; });
-    return a;
-  };
-  const clipAudio = new Map();
-  segs.forEach(s => s.voice.forEach(c => clipAudio.set(c, loadAudio(c.src))));
-  const bgm = loadAudio('assets/bgm.m4a');
+  // 背景音樂最先載入、邊下載邊播放；口白只預先載入目前與接下來幾段，避免搶頻寬
+  const bgm = new Audio('assets/bgm.m4a');
   bgm.loop = true;
   bgm.preload = 'auto';
   let bgmOK = true;
   bgm.onerror = () => { bgmOK = false; };
-  const BGM_VOL = 0.45, BGM_DUCK = 0.15; // 有口白時音樂自動降低音量
+  const clipAudio = new Map();
+  segs.forEach(s => s.voice.forEach(c => {
+    const a = new Audio();
+    a.preload = 'none';
+    clipAudio.set(c, a);
+  }));
+  function prefetch(i) {
+    for (let k = i; k < Math.min(segs.length, i + 3); k++) {
+      segs[k].voice.forEach(c => {
+        const a = clipAudio.get(c);
+        if (!a.src) { a.preload = 'auto'; a.src = c.src; }
+      });
+    }
+  }
+  prefetch(0);
+  let prefetchedAt = 0;
+  const BGM_VOL = 0.55, BGM_DUCK = 0.3; // 有口白時音樂自動降低音量
   let bgmVol = 0, curClip = null;
   const safePlay = a => { const p = a.play(); if (p) p.catch(() => {}); };
 
   function syncAudio(dt) {
-    const seg = segs[segAt(Math.min(t, TOTAL - 1e-3))];
+    const si = segAt(Math.min(t, TOTAL - 1e-3));
+    const seg = segs[si];
     const lt = t - seg.start;
+    if (si !== prefetchedAt) { prefetch(si); prefetchedAt = si; }
     const want = playing && audioOn.voice ? seg.voice.find(c => lt >= c.at && lt < c.at + c.dur) : null;
     const wantA = want ? clipAudio.get(want) : null;
     if (curClip && curClip !== wantA) { curClip.pause(); curClip = null; }

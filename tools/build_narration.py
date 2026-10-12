@@ -12,7 +12,7 @@
   edge     微軟線上神經語音（edge-tts，需網路；預設 zh-TW-HsiaoChenNeural）
   windows  Windows 內建臺灣語音（離線；Yating 女聲 / Zhiwei 男聲 / Hanhan 女聲）
   auto     先試 edge，連不上就改用 windows（預設）
-需要：Node.js（讀取 data.js）。
+需要：Node.js（讀取 data.js）；windows 引擎另需 pip install lameenc（轉成 MP3）。
 """
 import argparse
 import asyncio
@@ -56,18 +56,30 @@ def collect(data):
     return items
 
 
-def duration(path):
-    if path.suffix == '.wav':
-        with wave.open(str(path)) as w:
-            return round(w.getnframes() / w.getframerate(), 2)
-    return round(path.stat().st_size * 8 / 48000, 2)  # edge-tts 固定 48kbps mp3
+def wav_to_mp3(wav, mp3, kbps=48):
+    """WAV 轉 MP3（網頁載入快很多），回傳秒數。需要 pip install lameenc。"""
+    import lameenc
+    with wave.open(str(wav)) as w:
+        rate, ch, frames = w.getframerate(), w.getnchannels(), w.readframes(w.getnframes())
+        dur = round(w.getnframes() / rate, 2)
+    enc = lameenc.Encoder()
+    enc.set_bit_rate(kbps)
+    enc.set_in_sample_rate(rate)
+    enc.set_channels(ch)
+    enc.set_quality(2)
+    mp3.write_bytes(enc.encode(frames) + enc.flush())
+    wav.unlink()
+    return dur
 
 
 async def edge_synth(jobs, voice, rate):
     import edge_tts
+    durs = {}
     for text, path in jobs:
         await edge_tts.Communicate(text, voice, rate=f'{round((rate - 1) * 100):+d}%').save(str(path))
+        durs[path.name] = round(path.stat().st_size * 8 / 48000, 2)  # edge-tts 固定 48kbps mp3
         print(f'  產生 {path.name}  {text}')
+    return durs
 
 
 def trim_wav(path, threshold=400, keep=0.08):
@@ -90,13 +102,17 @@ def trim_wav(path, threshold=400, keep=0.08):
 
 def windows_synth(jobs, voice, rate):
     with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False, encoding='utf-8') as f:
-        json.dump([{'text': t, 'path': str(p)} for t, p in jobs], f, ensure_ascii=False)
+        json.dump([{'text': t, 'path': str(p.with_suffix('.wav'))} for t, p in jobs], f, ensure_ascii=False)
     subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(PS_SCRIPT),
                     '-Jobs', f.name, '-Voice', voice, '-Rate', str(rate)], check=True)
     pathlib.Path(f.name).unlink()
+    durs = {}
     for text, path in jobs:
-        trim_wav(path)
+        wav = path.with_suffix('.wav')
+        trim_wav(wav)
+        durs[path.name] = wav_to_mp3(wav, path)
         print(f'  產生 {path.name}  {text}')
+    return durs
 
 
 def main():
@@ -118,29 +134,31 @@ def main():
             print(f'edge-tts 無法使用（{type(e).__name__}），改用 Windows 內建語音')
             engine = 'windows'
     voice = args.voice or DEFAULT_VOICE[engine]
-    ext = '.mp3' if engine == 'edge' else '.wav'
     print(f'語音引擎：{engine}，語音：{voice}，語速：{args.rate}')
 
     VOICE_DIR.mkdir(parents=True, exist_ok=True)
     manifest = json.loads(MANIFEST.read_text('utf-8')) if MANIFEST.exists() else {}
+    manifest = {k: v for k, v in manifest.items() if isinstance(v, dict)}  # 舊格式直接重做
     items = collect(load_data())
 
     jobs, plan = [], {}
     for key, lst in items.items():
         plan[key] = []
         for n, (at, text) in enumerate(lst):
-            path = VOICE_DIR / f'{key}-{n}{ext}'
+            path = VOICE_DIR / f'{key}-{n}.mp3'
             sig = hashlib.sha1(f'{engine}|{voice}|{args.rate}|{text}'.encode()).hexdigest()
-            if args.all or manifest.get(path.name) != sig or not path.exists():
+            if args.all or manifest.get(path.name, {}).get('sig') != sig or not path.exists():
                 jobs.append((text, path))
-                manifest[path.name] = sig
+                manifest[path.name] = {'sig': sig}
             plan[key].append((at, path))
 
     if jobs:
         if engine == 'edge':
-            asyncio.run(edge_synth(jobs, voice, args.rate))
+            durs = asyncio.run(edge_synth(jobs, voice, args.rate))
         else:
-            windows_synth(jobs, voice, args.rate)
+            durs = windows_synth(jobs, voice, args.rate)
+        for name, d in durs.items():
+            manifest[name]['dur'] = d
 
     # 清掉不再使用的舊語音檔
     used = {p.name for v in plan.values() for _, p in v}
@@ -149,7 +167,7 @@ def main():
             f.unlink()
             manifest.pop(f.name, None)
 
-    result = {k: [{'at': at, 'src': f'assets/voice/{p.name}', 'dur': duration(p)} for at, p in v] for k, v in plan.items()}
+    result = {k: [{'at': at, 'src': f'assets/voice/{p.name}', 'dur': manifest[p.name]['dur']} for at, p in v] for k, v in plan.items()}
     MANIFEST.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), 'utf-8')
     OUT_JS.write_text(
         '// 由 tools/build_narration.py 自動產生，請勿手動修改\n'
